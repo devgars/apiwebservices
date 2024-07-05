@@ -1,0 +1,1246 @@
+<?php
+
+namespace App\Http\Controllers\PostVenta;
+
+use App\Exports\RequestDasboardExport;
+use App\Exports\RequestExport;
+use App\Exports\RequestGeneradorExport;
+use App\Exports\UsersExport;
+use App\Models\User;
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
+use App\Rules\ValidationMYM;
+use Illuminate\Support\Facades\Config;
+use App\Repository\FunctionsRepository;
+use PDF;
+use App\Mail\SolicitudMailable;
+use App\Mail\ProveedorMailable;
+use Illuminate\Support\Facades\Mail;
+use App\Http\Controllers\PostVenta\ComentTrackingController;
+use App\Http\Controllers\PostVenta\TrackingStateController;
+use GuzzleHttp\Promise\Create;
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Storage;
+use Maatwebsite\Excel\Facades\Excel;
+
+class RequestController extends Controller
+{   
+    protected $functionsReposirory;
+    public function __construct(FunctionsRepository $functionsReposirory)
+    {
+        $this->functionsReposirory = $functionsReposirory;
+    }
+    public function index(Request $request){
+        $dataResources=DB::table('gen_resource_details')
+        ->select(
+            "id"
+        )->where('resource_id', 42)
+        ->where('code', '06')
+        ->skip(0)
+        ->take(1)
+        ->get();
+        $id_state = 0;
+        if(count($dataResources)>0){
+            $id_state =$dataResources[0]->id;
+        }
+        $data=DB::table('poventa_request as t1')
+        ->leftJoin('customers as t2', 't1.id_client', '=', 't2.id')
+        ->leftJoin('gen_resource_details as t3', 't1.type_document', '=', 't3.id')
+        ->leftJoin('gen_resource_details as t4', 't1.type_request', '=', 't4.id')
+        ->leftJoin('gen_resource_details as t5', 't1.category', '=', 't5.id')
+        ->leftJoin('gen_resource_details as t6', 't1.id_state', '=', 't6.id')
+        ->select( 
+            "t1.id",
+            "t1.id as idRequest",
+            "t1.num_request",
+            DB::raw("concat(t1.num_request, ' - ', t2.name_social_reason) as title"),
+            DB::raw("to_char(t1.date_reg,'DD/MM/YYYY') as date_reg"),
+            "t1.id_client",
+            "t2.name_social_reason",
+            "t1.fac_nom_vendedor",
+            "t3.description as tipo_doc",
+            "t4.description as tipo_sol",
+            "t5.description as categoria",
+            "t6.description as estado",
+            "t1.alert_date as date",
+        )  
+        ->where('t1.alert_state',1 )
+        ->where('t1.alert_id_user',$request->id_user )
+        //->whereNotIn('t1.id_state', [1524])//desarrollo
+        //->whereNotIn('t1.id_state', [1891])//produccion
+        ->whereNotIn('t1.id_state', [$id_state])//produccion
+        ->orderBy('id', 'asc')
+        ->get();
+        $datosCalendar  =array();
+        foreach ($data as $item){
+            $color = '';
+            if($item->estado==='GENERADO'){
+                $color = '#9191a5';
+            }
+            if($item->estado==='ANULADO'){
+                $color = '#7239ea';
+            }
+            if($item->estado==='EN PROCESO'){
+                $color = '#e5b407';
+            }
+            if($item->estado==='SOLUCIONADO'){
+                $color = '#36a76a';
+            }
+            if($item->estado==='RECHAZADO'){
+                $color = '#d9214e';
+            }
+            if($item->estado==='CERRADO'){
+                $color = '#0e98e6';
+            }
+            $datosCalendar[]=array(
+                "id"=>$item->id,
+                "idRequest"=>$item->idRequest,  
+                "num_request"=>$item->num_request,
+                "title"=>$item->title,
+                "date_reg"=>$item->date_reg,
+                "date"=>$item->date,
+                "color"=>$color, 
+                "id_client"=>$item->id_client,
+                "name_social_reason"=>$item->name_social_reason,
+                "fac_nom_vendedor"=>$item->fac_nom_vendedor,
+                "tipo_doc"=>$item->tipo_doc,
+                "tipo_sol"=>$item->tipo_sol,
+                "categoria"=>$item->categoria,
+                "estado"=>$item->estado,
+            );
+        }
+        return response()->json($datosCalendar, 200);
+    }
+   
+    public function create(Request $request){
+        $req=$request->input();
+        $idContacto = $req['IdContact'];
+        if($idContacto===null){
+            $idContacto=0;
+        }
+        $required = 'required';
+        $requiredTipoTRabajo = [$required,function ($attribute, $value, $fail) {if ($value == 0) {$fail('Seleccione Tipo de Trabajo');}}];
+        if($req['isCheckedInstall']==false){
+            $required = '';
+            $requiredTipoTRabajo='';
+        }
+        $dateNowFpdf=date('m-d-H-i-s');
+        $dateNow =date('Y-m-d H:i:s');
+        $dateNowf2 =date('d/m/Y');
+        $dateNowh2 =date('H:i');
+        $rules=[ 
+            "TypeRequest"=> ['required','numeric',function ($attribute, $value, $fail) {if ($value == 0) {$fail('Seleccione tipo de Solicitud');}}],
+            "IdClient"=>  ['required', 'numeric', function ($attribute, $value, $fail) {if ($value == 0) {$fail('Seleccione cliente');}}],
+            //"IdContact"=>  ['required', 'numeric',function ($attribute, $value, $fail) {if ($value == 0) {$fail('Seleccione un contacto');}}],
+            "Category"=>  ['required','numeric', function ($attribute, $value, $fail) {if ($value == 0) {$fail('Seleccione una categoria');}}],
+            "type_document"=>  ['required','numeric', function ($attribute, $value, $fail) {if ($value == 0) {$fail('Seleccione tipo documento');}}],
+            "serie"=>  ['required', 'numeric',function ($attribute, $value, $fail) {if ($value == 0) {$fail('Seleccione una serie');}}],
+            "NumFact"=>  ['required'],
+            "Idresponsable"=> 'required',
+            "brand_veh"=>  $required,
+            "model_Veh"=>  $required,
+            "year_veh"=>  $required,
+            "plate_veh"=>  $required,
+            "engine_veh"=>  $required,
+            //"type_use_machinery"=>  [$required,function ($attribute, $value, $fail) {if ($value == 0) {$fail('Seleccione Tipo de Trabajo');}}],
+            "type_use_machinery"=> $requiredTipoTRabajo,
+            "type_flaw"=>  ['required', function ($attribute, $value, $fail) {if ($value == 0) {$fail('Seleccione Tipo Defecto');}}],
+            "detail_request"=>  'required',
+        ];
+        $dataProduct = $req['data_product'];
+        $validator = Validator::make($request->all(),$rules);
+        if ($validator->fails()){
+            return response()->json( ["estado"=>false, "data"=>$validator->errors(),"message"=>'warning'], 200);
+        }else{
+            $validProductDetalle = false;
+            //if($req['TypeRequest'] == 1488 || $req['TypeRequest'] == 1490){//desarollo
+            //if($req['TypeRequest'] == 1818 || $req['TypeRequest'] == 1816){//producción
+            if($req['tiposolText']==='QUEJA' || $req['tiposolText']==='G. ADMIN'){ //producción
+                $validProductDetalle = true;
+            }else{
+                if (count($dataProduct)>0){
+                    $validProductDetalle = true;
+                }
+            }
+            if ($validProductDetalle){
+                $unit_rec = 0;
+                $unit_ven = 0;
+                foreach ($dataProduct as $v){
+                    $unidad_ven = $v["unidad_ven"];
+                    $unidad_rec = $v["unidad_rec"];
+                    if($unidad_rec>0){
+                        $unit_rec++;
+                    }
+                    if($unidad_rec<=$unidad_ven){
+                        $unit_ven++; 
+                    }
+                }
+                if($unit_rec==count($dataProduct)){
+                    if($unit_ven==count($dataProduct)){
+                        $dataResources=DB::table('gen_resource_details')
+                        ->select(
+                            "id"
+                        )->where('resource_id', 42)
+                        ->where('code', '01')
+                        ->skip(0)
+                        ->take(1)
+                        ->get();
+                        $idstate_row = 0;
+                        if(count($dataResources)>0){
+                            $idstate_row =$dataResources[0]->id;
+                        }
+                        $request_count =DB::table('poventa_request')
+                        ->select(DB::raw('count(*) as req_count')) 
+                        ->first();
+                        $request_id_count =DB::table('poventa_request')
+                        ->select(DB::raw('id +1 as id_sum')) 
+                        ->orderBy('id', 'desc')
+                        ->first();
+                        $num_request =('R0'.$request_count->req_count).'1'.'-'.date('Y');
+                        if($request_count->req_count>0){
+                            $num_request ='R00'.($request_id_count->id_sum).'-'.date('Y');
+                        }
+                        $nameFilePDF = $num_request.'-'.$dateNowFpdf.'.pdf';
+                        $data=array();
+                        $data['num_request'] = $num_request;
+                        $data['type_request' ] =  $req['TypeRequest'];
+                        $data['category' ] =  $req['Category'];
+                        $data['id_client' ] =  $req['IdClient'];
+                        $data['type_document' ] =  $req['type_document'];
+                        $data['serie' ] =  $req['serie'];
+                        $data['id_contact' ] =  $req['IdContact'];
+                        //$data['id_contact' ] =  0;
+                        $data['fac_fiscal_document_id' ] =  $req['fac_fiscal_document_id'];
+                        $data['num_fact' ] =  $req['NumFact'];
+                        $data['id_responsable' ] =  $req['Idresponsable'];
+                        $data['id_state'] =  $idstate_row;
+                        $data['line_id'] =  $req['line_id'];
+                        $data['line_code' ] =  $req['line_code'];
+                        $data['brand_veh' ] =  $req['brand_veh'];
+                        $data['model_id' ] =  $req['model_id'];
+                        $data['model_code' ] =  $req['model_code'];
+                        $data['model_Veh' ] =  $req['model_Veh'];
+                        $data['year_veh' ] =  $req['year_veh'];
+                        $data['plate_veh' ] =  $req['plate_veh'];
+                        $data['engine_veh' ] =  $req['engine_veh'];
+                        $data['type_use_machinery' ] =  $req['type_use_machinery'];
+                        $data['type_flaw' ] =  $req['type_flaw'];
+                        $data['detail_request' ] =  $req['detail_request'];
+                        $data['state' ] =  1;
+                        $data['date_reg' ] =  $dateNow;
+                        $data['hour_reg' ] =  date('H:i:s');
+                        $data['filenamepdf' ] = $nameFilePDF;   
+                        $data['fac_order_id' ] = $req['fac_order_id'];
+                        $data['fac_nom_vendedor' ] = $req['fac_nom_vendedor'];
+                        $data['fac_date_emision' ] = date_format(date_create_from_format('Ymd', $req['fac_date_emision']), 'Y-m-d');
+                        $data['fac_suc' ] = $req['fac_suc'];
+                        $data['fac_alm' ] = $req['fac_alm'];
+                        $data['fac_dir_cli' ] = $req['customer_address']; 
+                        $data['fac_guia_remision' ] = $req['fac_guia_remision'];
+                        $data['id_user_reg' ] = $req['Idresponsable'];
+                        $result=DB::table('poventa_request')->insertGetId($data);
+                        if($result>0){
+                            $prodReqDet= array();                       
+                            foreach ($dataProduct as $itm){
+                                $prodReqDet['id_request' ] =  $result;
+                                $prodReqDet['num_fac' ] =  $req['NumFact'];
+                                $prodReqDet['code' ] =  $itm["codigo"];
+                                $prodReqDet['part_detail_id' ] =  $itm["part_detail_id"];
+                                $prodReqDet['sku' ] =  $itm["sku"];
+                                $prodReqDet['factory_code' ] =  $itm["factory_code"];
+                                $prodReqDet['brand' ] =  $itm["marca"];
+                                $prodReqDet['description' ] =  $itm["decripcion"];
+                                $prodReqDet['unit_ven' ] =  $itm["unidad_ven"];
+                                $prodReqDet['unit_rec' ] =  $itm["unidad_rec"];
+                                $prodReqDet['state' ] =  1;
+                                $prodReqDet['date_reg' ] =  $dateNow;
+                                $prodReqDet['item_price' ] =  $itm["item_price"];
+                                $prodReqDet['origin_code' ] =  $itm["origin_code"];
+                                $prodReqDet['line_code' ] =  $itm["line_code"];
+                                $prodReqDet['order_id' ] =  $itm["order_id"];
+                                $prodReqDet['state_proveedor' ] =  1;
+                                $rsPRD=DB::table('poventa_produc_detail_request')->insertGetId($prodReqDet);
+                            }
+                            $rsRequest=$this->getByRequest($result);
+                            if(count($rsRequest)>0){
+                                $dataDetail=DB::table('poventa_produc_detail_request as t1')
+                                ->leftJoin('gen_resource_details as t2', 't1.status_product', '=', 't2.id')
+                                ->leftJoin('gen_resource_details as t3', 't1.id_motivo', '=', 't3.id')
+                                ->select(
+                                    't1.code',
+                                    't1.brand',
+                                    't1.unit_rec',
+                                    't1.unit_proc',
+                                    "t2.description as estado_producto",
+                                    "t3.description as motivo"
+                                )
+                                ->where('t1.id_request',$result)
+                                ->orderBy('t1.id', 'asc')
+                                ->get();
+                                $rsDataSolicitud =  array( 
+                                    'Type'=>'byid',
+                                    'datadetial'=>$dataDetail,
+                                    "NumRquest"=>$num_request,
+                                    'contact_name'=>$rsRequest[0]->contact_name,
+                                    "NameClient"=>$rsRequest[0]->name_social_reason,
+                                    "contact_phone"=>$rsRequest[0]->contact_phone,
+                                    "Domicilio"=>'',
+                                    "Domicilio_contact"=>$rsRequest[0]->address_contact,
+                                    "Document_contact"=>$rsRequest[0]->document_contact,
+                                    "Document"=>$rsRequest[0]->document_number,
+                                    "Email"=>'',
+                                    "Detalle"=>$rsRequest[0]->detail_request,
+                                    "TypeRequest"=>$rsRequest[0]->description,
+                                    'Day'=> $this->functionsReposirory->NameDate($dateNow,'d'),
+                                    'Month'=> $this->functionsReposirory->NameDate($dateNow,'n_m'),
+                                    'Year'=> $this->functionsReposirory->NameDate($dateNow,'Y'),
+                                    'FilePDF'=>'files/reclamos/'.$nameFilePDF,
+                                    'estado_des'=>'GENERADO'
+                                );
+                                $trakState =  new TrackingStateController();
+                                $rsInsSta  =$trakState->create($result, $req['Idresponsable'],$idstate_row);
+                                $this->SolicitudesPdf($rsDataSolicitud, $nameFilePDF);
+                                $resultData = [ 
+                                    "id"=>$result,
+                                    "filenameRoutes"=>'/files/reclamos/'.$nameFilePDF,
+                                    "fechaRegtxt"=>$num_request .' el '. $dateNowf2.' a las '.now()->isoFormat('hh:mm A')
+                                ];
+                                $emailcontact =$rsRequest[0]->contact_email;
+                                $emailcontactValid ='elonazco@mym.com.pe';
+                                if(filter_var($emailcontact, FILTER_VALIDATE_EMAIL)){
+                                    $emailcontactValid =$rsRequest[0]->contact_email;
+                                }
+                                $destinatario = [
+                                    //'elonazco@mym.com.pe',
+                                    //$emailcontactValid,
+                                    'gflores@mym.com.pe',
+                                    'sreynaga@mym.com.pe',
+                                    'mperez@mym.com.pe',
+                                    'hhuanca@mym.com.pe', 
+                                ];
+                                $correo =  new SolicitudMailable($rsDataSolicitud);
+                                Mail::to($destinatario)->send($correo);
+                                return response()->json(["estado"=>true, "data"=>$resultData,"message"=>'success'], 200);
+                            }else{
+                                return response()->json(["estado"=>false, "data"=>$result,"message"=>'error'], 200);
+                            }
+                        }else{
+                            return response()->json(["estado"=>false, "data"=>$result, "message"=>'error'], 200);
+                        }
+                    }else{
+                        return response()->json( ["estado"=>false, "data"=>array("nume"=>["El campo Unidad reclamda no debe ser mayor a la unidad de venta"]),"message"=>'warning'], 200);
+                    }
+                }else{
+                    return response()->json( ["estado"=>false, "data"=>array("nume"=>["Ingrese la cantidad reclamado"]),"message"=>'warning'], 200);
+                }
+            }else{
+                return response()->json( ["estado"=>false, "data"=>array("nume"=>["Seleccion el detalle de factura"]),"message"=>'warning'], 200);
+            }
+        }
+    }
+    public function getByRequest($id){
+        $data=DB::table('poventa_request as t1')
+        ->leftJoin('customers as t2', 't1.id_client','=','t2.id')
+        ->leftJoin('gen_resource_details as t3', 't1.type_request', '=', 't3.id')
+        ->leftJoin('customer_contacts as t4', 't4.id', '=', 't1.id_contact')
+        ->leftJoin('gen_resource_details as t5', 't1.id_state', '=', 't5.id')
+        ->leftJoin('gen_resource_details as t6', 't1.category', '=', 't6.id')
+        ->leftJoin('gen_resource_details as t7', 't1.id_motivo', '=', 't7.id')
+        ->select(
+            't1.id',
+            't1.num_request',
+            't1.detail_request',
+            't2.name_social_reason', 
+            't2.code as code_cli', 
+            't2.document_number',
+            't3.id as id_tipo_reclamo', 
+            't3.description',
+            't4.contact_name',
+            't4.contact_email',
+            't1.filenamepdf',
+            't4.contact_phone',
+            't4.identification_number as document_contact',
+            't4.contact_address as address_contact',
+            't1.date_reg',
+            't5.description as estado_des',
+            't6.description as categoria',
+            't7.description as motivo',
+            't1.num_fact as num_comprobante',
+            DB::raw("to_char(t1.fac_date_emision,'DD/MM/YYYY') as fac_date_emision"),
+            DB::raw("to_char(t1.date_reg,'DD/MM/YYYY') as fecha_reg"),
+
+        )->where('t1.id', $id)
+        ->get();
+        //return response()->json($data, 200);
+        return $data; 
+    }
+    public function sendEmailPersonalize(Request $request){
+        $rules=[
+            "id"=>  ['required'],
+            "correo"=>  ['required', 'email']
+        ];
+        $validator = Validator::make($request->all(),$rules);
+        if ($validator->fails()){
+            return response()->json( ["estado"=>false, "data"=>$validator->errors(),"message"=>'warning'], 200);
+        }else{
+            $rsRequest=$this->getByRequest($request->id);
+            $nameEmail =$request->correo;
+            if(count($rsRequest)>0){
+                $rsDataSolicitud =  array( 
+                    "NumRquest"=> $rsRequest[0]->num_request,
+                    "NameClient"=>$rsRequest[0]->name_social_reason,
+                    "Domicilio"=>'',
+                    "Document"=>$rsRequest[0]->document_number,
+                    "Email"=>'',
+                    "Domicilio_contact"=>$rsRequest[0]->address_contact,
+                    "Document_contact"=>$rsRequest[0]->document_number,
+                    "Detalle"=>$rsRequest[0]->detail_request,
+                    "TypeRequest"=>$rsRequest[0]->description,
+                    'Day'=> '',
+                    'Month'=>'',
+                    'Year'=> '',
+                    'FilePDF'=>'files/reclamos/'.$rsRequest[0]->filenamepdf
+                );
+                $destinatario = [ 
+                    'elonazco@mym.com.pe',
+                    'aorozco@mym.com.pe', 
+                ];
+                $correo =  new SolicitudMailable($rsDataSolicitud);
+                Mail::to($nameEmail)->send($correo);
+                return response()->json(["estado"=>true, "data"=>1,"message"=>'success'], 200);
+            }else{
+                return response()->json(["estado"=>false, "data"=>2,"message"=>'error'], 200);
+            }
+        }
+    }
+    public function getByIdRequestForTracking(Request $request){
+        $data=DB::table('poventa_request as t1')
+        ->leftJoin('customers as t2', 't1.id_client','=','t2.id')
+        ->leftJoin('gen_resource_details as t3', 't1.type_request', '=', 't3.id')
+        ->leftJoin('customer_contacts as t4', 't4.id', '=', 't1.id_contact')
+        ->leftJoin('gen_resource_details as t5', 't5.id', '=', 't1.category')
+        ->leftJoin('gen_resource_details as t6', 't6.id', '=', 't1.id_state')
+        ->leftJoin('users as t7', 't7.id', '=', 't1.id_user_responsable')
+        ->leftJoin('users as t9', 't9.id', '=', 't1.id_responsable')
+        ->leftJoin('gen_resource_details as t10', 't10.id', '=', 't1.accion_correctiva_cli')
+        ->leftJoin('gen_resource_details as t11', 't11.id', '=', 't1.id_motivo')
+        ->select(
+            't1.id', 
+            't1.detail_request',
+            't1.type_request as id_type_request',
+            't1.category as id_category',
+            't1.num_request',
+            't1.num_fact',
+            DB::raw("to_char(t1.date_reg,'DD/MM/YYYY') as date_reg"),
+            DB::raw("to_char(t1.date_reg,'HH12:MI AM') as hour_reg"),
+            't2.name_social_reason', 
+            't2.document_number',
+            't3.id as id_tipo_reclamo', 
+            't3.description as type_request',
+            't4.contact_name',
+            't4.contact_email',
+            't5.description as categoria',
+            't6.description as estado',
+            't6.description as estado_desc',
+            't1.id_state',
+            't7.name as name_user', 
+            't9.name as name_user_gen',
+            DB::raw("(DATE_PART('day', current_timestamp::timestamp - t1.date_reg::timestamp)) as ditas_diff"),
+            DB::raw("(DATE_PART('day', current_timestamp::timestamp - t1.date_upd::timestamp)) as dias_reabrir_diff"),
+            't1.num_nc_cli',
+            't10.description as accion_correctiva_cli',
+            't1.fac_nom_vendedor',
+            DB::raw("to_char(t1.fac_date_emision,'DD/MM/YYYY') as fac_date_emision"),
+            't1.fac_dir_cli',
+            't1.fac_guia_remision',
+            't1.fac_suc',
+            't1.fac_alm',
+            't1.alert_state',
+            't11.description as motivo',
+        )->where('t1.id', $request->id)
+        ->skip(0)
+        ->take(1)
+        ->get();
+        $requestDetail = array();
+        foreach($data  as $val){
+            $listDataToken = [
+                $val->id,
+                $val->num_request
+            ]; 
+            $keyurl = base64_encode(implode('|', $listDataToken)); 
+            $requestDetail[]=array(
+                "id" =>$val->id,
+                "detail_request" =>$val->detail_request,
+                "id_type_request" =>$val->id_type_request,
+                "id_category" =>$val->id_category,
+                "num_request" =>$val->num_request,
+                "num_fact" =>$val->num_fact,
+                "date_reg" =>$val->date_reg,
+                "hour_reg" =>$val->hour_reg,
+                "name_social_reason" =>$val->name_social_reason,
+                "document_number" =>$val->document_number,
+                "id_tipo_reclamo" =>$val->id_tipo_reclamo,
+                "type_request" =>$val->type_request,
+                "contact_name" =>$val->contact_name,
+                "contact_email" =>$val->contact_email,
+                "categoria" =>$val->categoria,
+                "estado" =>$val->estado,
+                "estado_desc" =>$val->estado_desc,
+                "id_state" =>$val->id_state,
+                "name_user" =>$val->name_user,
+                "name_user_gen" =>$val->name_user_gen,
+                "ditas_diff" =>$val->ditas_diff,
+                "dias_reabrir_diff" =>$val->dias_reabrir_diff,
+                "num_nc_cli" =>$val->num_nc_cli,
+                "accion_correctiva_cli" =>$val->accion_correctiva_cli,
+                "fac_nom_vendedor" =>$val->fac_nom_vendedor,
+                "fac_date_emision" =>$val->fac_date_emision,
+                "fac_dir_cli" =>$val->fac_dir_cli,
+                "fac_guia_remision" =>$val->fac_guia_remision,
+                "fac_suc" =>$val->fac_suc,
+                "fac_alm" =>$val->fac_alm,
+                "alert_state" =>$val->alert_state,
+                "motivo" =>$val->motivo,
+                "id_enconde" =>$keyurl
+            );
+        }
+        return response()->json($requestDetail, 200);
+    }
+    public function SolicitudesPdf($rsDataSolicitud=[],$nameFile=''){
+        $namePDF = $nameFile;
+        $pdf = PDF::loadview('pdf.hojareclamacion', ['rsDataSolicitud'=>$rsDataSolicitud]);
+        //$pdf=PDF::loadHTML('<h1>Test</h1>');
+        $pdf->setPaper('letter', 'portrait');
+        $pdf->render();
+        //return $pdf->stream($namePDF); 
+        file_put_contents('files/reclamos/'.$namePDF, $pdf->output());
+    }
+    public function TextSolicitudesPdf(){
+        $rsDataSolicitud =  array( 
+            'Type'=>'',
+            "NumRquest"=>'',
+            "NameClient"=>'', 
+            'contact_name'=>'Contact Sabrina',
+            "contact_phone"=>'9348938',
+            "Domicilio"=>'Direcion av',
+            "Document"=>'',
+            "Domicilio_contact"=>'',
+            "Document_contact"=>'',
+            "Email"=>'',
+            "Detalle"=>'',
+            "TypeRequest"=>'reclamos ',
+            'Day'=> $this->functionsReposirory->NameDate(date('Y-m-d H:i:s'),'d'),
+            'Month'=> $this->functionsReposirory->NameDate(date('Y-m-d H:i:s'),'n_m'),
+            'Year'=> $this->functionsReposirory->NameDate(date('Y-m-d H:i:s'),'Y'),
+            'estado_des'=>''
+        );
+        $namePDF = 'Test-0-'.date('Y-m-d-h-i-s').'.pdf';
+        $pdf = PDF::loadview('pdf.hojareclamacion', ['rsDataSolicitud'=>$rsDataSolicitud]);
+        //$pdf=PDF::loadHTML('<h1>Test</h1>');
+        $pdf->setPaper('letter', 'portrait');
+        $pdf->render();
+        //file_put_contents('files/reclamos/'.$namePDF, $pdf->output());
+        return $pdf->stream($namePDF);
+        //$pdf->download($namePDF);
+    }
+    public function getPdfGeneratoSolicitudes(Request $request){
+        $prRoute =$request->id;
+        $refDecode = base64_decode($prRoute);
+        $refExplo = explode("|", $refDecode);
+        $rsRequest=$this->getByRequest($refExplo[0]);
+        $dataDetail=DB::table('poventa_produc_detail_request as t1')
+        ->leftJoin('gen_resource_details as t2', 't1.status_product', '=', 't2.id')
+        ->leftJoin('gen_resource_details as t3', 't1.id_motivo', '=', 't3.id')
+        ->select(
+            't1.code',
+            't1.brand',
+            't1.unit_rec',
+            't1.unit_proc',
+            "t2.description as estado_producto",
+            "t3.description as motivo"
+        )
+        ->where('t1.id_request',$refExplo[0] )
+        ->orderBy('t1.id', 'asc')
+        ->get();
+        if(count($rsRequest)>0){
+            $dateNow =$rsRequest[0]->date_reg;
+            $rsDataSolicitud =  array( 
+                'Type'=>'byid',
+                'datadetial'=>$dataDetail,
+                "NumRquest"=>$rsRequest[0]->num_request,
+                'contact_name'=>$rsRequest[0]->contact_name,
+                "NameClient"=>$rsRequest[0]->name_social_reason,
+                "contact_phone"=>$rsRequest[0]->contact_phone,
+                "Domicilio"=>'',
+                "Domicilio_contact"=>$rsRequest[0]->address_contact,
+                "Document_contact"=>$rsRequest[0]->document_contact,
+                "Document"=>$rsRequest[0]->document_number,
+                "Email"=>'',
+                "Detalle"=>$rsRequest[0]->detail_request,
+                "TypeRequest"=>$rsRequest[0]->description,
+                'Day'=> $this->functionsReposirory->NameDate($dateNow,'d'),
+                'Month'=> $this->functionsReposirory->NameDate($dateNow,'n_m'),
+                'Year'=> $this->functionsReposirory->NameDate($dateNow,'Y'),
+                "estado_des"=>$rsRequest[0]->estado_des
+            );
+            $namePDF = 'Test-0-'.date('Y-m-d-h-i-s').'.pdf';
+            $pdf = PDF::loadview('pdf.hojareclamacion', ['rsDataSolicitud'=>$rsDataSolicitud]);
+            $pdf->setPaper('letter', 'portrait');
+            $pdf->render();
+            return $pdf->stream($namePDF);
+        }else{
+            return view('pdf.filewhithout');
+        }
+    }
+    public function sendMailable(){ 
+        $datos = [
+            "prov_ord_compra" => '34535353',
+            "prov_cod_prod" => '34545343',
+            "prov_subject" => 'Nota de Crédito',
+            "prov_solution_proveedor" => 'NC',
+            'prov_num_nc'=> '34543535',
+            "prov_type_money_nc"  => 'soles',
+            "prov_date_nc" => '19/05/2021',
+            "prov_importe_nc" => '100.00',
+            "prov_num_fac" => '3543535',
+            "prov_date_fac" => '19/05/2021',
+            "prov_monto_desc" => '100',
+            "prov_porcentaje_desc"  => '10'
+        ];
+        $correo =  new ProveedorMailable($datos);
+        Mail::to('elonazco@mym.com.pe')->send($correo);
+        return 'Correo se envio exitoso ';
+        
+    }
+    public function editStateRquest(Request $request){
+        $rules=[]; //1522 en proceso 
+        $code_estado = $request->code_estado;
+        $dataResources=DB::table('gen_resource_details')
+        ->select(
+            "id",
+            'description'
+        )->where('resource_id', 42)
+        ->where('code', $code_estado)
+        ->skip(0)
+        ->take(1)
+        ->get();
+        if(count($dataResources)>0){
+            $idstate =$dataResources[0]->id;
+            $description_state=$dataResources[0]->description;
+            //if($request->id_state==1524){//desarrollo
+            //if($request->id_state===1891){//produccion
+            if($description_state==='CERRADO'){//produccion
+                $rules=[
+                    "accion_correctiva_cli"=>  ['required', 'numeric',function ($attribute, $value, $fail) {if ($value == 0) {$fail('Seleccione acción correctiva');}}],
+                    "num_nc_cli"=>  ['required'],
+                ];
+            }
+            $id_type_request =  $request->id_type_request;
+            $validator = Validator::make($request->all(),$rules);
+            if ($validator->fails()){
+                return response()->json( ["estado"=>false, "data"=>$validator->errors(),"message"=>'warning'], 200);
+            }else{
+                $datos["id_state"]  = $idstate;//$request->id_state;
+                $datos["date_upd"]  =  date('Y-m-d H:i:s');
+                $datos["hour_upd"]  =  date('H:i:s');
+                $datos["id_user_upd"]  =  $request->id_user_upd; 
+                //if($request->id_state==1522){desarrollo
+                //if($request->id_state===1889){ 
+                if($description_state==='EN PROCESO'){ 
+                    $datos["id_user_responsable"]  =  $request->id_user_responsable;
+                    $datos["id_responsable"]  =  $request->id_user_responsable;
+                }            
+                $datos["num_nc_cli"]  =  $request->num_nc_cli;
+                $datos["nc_fiscal_document_id"]  =  $request->nc_fiscal_document_id;
+                $datos["accion_correctiva_cli"]  =  $request->accion_correctiva_cli;
+                $rs = DB::table('poventa_request')->where('id','=', $request->id)->update($datos);
+                if ($rs>0){
+                    $trakState =  new TrackingStateController();
+                    $rsInsSta  =$trakState->create($request->id,$request->id_user_upd,$idstate);
+                    return response()->json(["estado"=>true, "data"=>$rs, "message"=>'success'], 200);
+                }else{
+                    return response()->json(["estado"=>false, "data"=>$rs, "message"=>'error'], 200);
+                }
+            }
+        }
+    }
+    public function sendMailSolucionado(Request $request){
+        //$rsRequest=$this->getByRequest($request->id_request);
+        $idrequest=$request->id_request;
+        //$idrequest=58;
+        $rsRequest=DB::table('poventa_request as t1')
+        ->leftJoin('customers as t2', 't1.id_client','=','t2.id')
+        ->leftJoin('gen_resource_details as t3', 't1.type_request', '=', 't3.id')
+        ->leftJoin('customer_contacts as t4', 't4.id', '=', 't1.id_contact')
+        ->leftJoin('gen_resource_details as t5', 't1.id_state', '=', 't5.id')
+        ->leftJoin('gen_resource_details as t6', 't1.category', '=', 't6.id')
+        ->leftJoin('gen_resource_details as t7', 't1.id_motivo', '=', 't7.id')
+        ->join('v_fac_bol_cab as t8', 't1.fac_fiscal_document_id', '=', 't8.fiscal_document_id')
+        ->select(
+            't1.id',
+            't1.num_request',
+            't1.detail_request',
+            't2.name_social_reason', 
+            't2.code as code_cli', 
+            't2.document_number',
+            't3.id as id_tipo_reclamo', 
+            't3.description',
+            't4.contact_name',
+            't4.contact_email',
+            't1.filenamepdf',
+            't4.contact_phone',
+            't4.identification_number as document_contact',
+            't4.contact_address as address_contact',
+            't1.date_reg',
+            't5.description as estado_des',
+            't6.description as categoria',
+            't7.description as motivo',
+            't1.num_fact as num_comprobante',
+            't8.numero_interno as numero_pedido',
+            DB::raw("to_char(t1.fac_date_emision,'DD/MM/YYYY') as fac_date_emision"),
+        )->where('t1.id', $idrequest)
+        ->get();
+        if(count($rsRequest)>0){
+            $dataDetail=DB::table('poventa_produc_detail_request as t1')
+            ->leftJoin('gen_resource_details as t2', 't1.status_product', '=', 't2.id')
+            ->leftJoin('gen_resource_details as t3', 't1.id_motivo', '=', 't3.id')
+            ->select(
+                't1.code',
+                't1.brand',
+                't1.unit_rec',
+                't1.origin_code',
+                't1.line_code',
+                't1.unit_proc',
+                't1.description as descripcion_prod',
+                "t2.description as estado_producto",
+                "t3.description as motivo",
+                "t1.detail as detalle_producto",
+                't1.subjet',
+                't1.detail',
+                't1.factory_code',
+                "t1.cause_failure",
+                "t1.recommendations",
+            )
+            ->where('t1.id_request', $idrequest)
+            //->where('t1.status_product', 1539)//desarrollo
+            //->where('t1.status_product', 1918)//produccion
+            ->where('t2.resource_id', 45)
+            ->where('t2.code', '01')
+            ->orderBy('t1.id', 'asc')
+            ->get();
+            $destinatario=[  
+                //'elonazco@mym.com.pe',
+                'sreynaga@mym.com.pe',
+                'gflores@mym.com.pe',
+                'hhuanca@mym.com.pe',
+               
+                //'esandoval@mym.com.pe',
+                //'rvelasquez@mym.com.pe',
+                //'lchavez@mym.com.pe',
+                //'avargas@mym.com.pe',
+                //'ybasurto@mym.com.pe',
+                //'fniquen@mym.com.pe'
+            ];
+            $namePDF = $rsRequest[0]->num_request.' - Informe-tecnico-'.date('Y-m-d-h-i-s').'.pdf';
+            $fileName = 'files/reclamos/'.$namePDF;
+            $mailTo = [ 
+                "NumRquest"=> $rsRequest[0]->num_request,
+                "NameClient"=>$rsRequest[0]->name_social_reason,
+                "Domicilio"=>'',
+                "Document"=>$rsRequest[0]->document_number,
+                "Email"=>'',
+                "Domicilio_contact"=>$rsRequest[0]->address_contact,
+                "Document_contact"=>$rsRequest[0]->document_number,
+                "Detalle"=>$rsRequest[0]->detail_request,
+                "TypeRequest"=>$rsRequest[0]->description,
+                'Day'=> '',
+                'Month'=>'',
+                'Year'=> '',
+                'FilePDF'=>'files/reclamos/'.$rsRequest[0]->filenamepdf,
+                'name'=>'esandoval@mym.com.pe',
+                "categoria"=> $rsRequest[0]->categoria,
+                'productos'=>$dataDetail,
+                "code_cli"=> $rsRequest[0]->code_cli,
+                "num_comprobante"=> $rsRequest[0]->num_comprobante,
+                "num_pedido"=> $rsRequest[0]->numero_pedido,
+                "fac_date_emision"=> $rsRequest[0]->fac_date_emision,
+                "motivo"=> $rsRequest[0]->motivo,
+                "detail_request"=> $rsRequest[0]->detail_request,
+                "maildestinatario"=> $destinatario ,
+                'filenameinformetec'=>$fileName 
+            ];
+            //**** */     
+            $rsInforRequest=$this->getByRequest($idrequest);
+            $dateNow =$rsInforRequest[0]->date_reg;
+            $rsDataSolicitud =  array( 
+                'Type'=>'byid',
+                'datadetial'=>$dataDetail,
+                "NumRquest"=>$rsInforRequest[0]->num_request,
+                'contact_name'=>$rsInforRequest[0]->contact_name,
+                "NameClient"=>$rsInforRequest[0]->name_social_reason,
+                "contact_phone"=>$rsInforRequest[0]->contact_phone,
+                "Domicilio"=>'',
+                "Domicilio_contact"=>$rsInforRequest[0]->address_contact,
+                "Document_contact"=>$rsInforRequest[0]->document_contact,
+                "Document"=>$rsInforRequest[0]->document_number,
+                "Email"=>'',
+                "Detalle"=>$rsInforRequest[0]->detail_request,
+                "TypeRequest"=>$rsInforRequest[0]->description,
+                'Day'=> $this->functionsReposirory->NameDate($dateNow,'d'),
+                'Month'=> $this->functionsReposirory->NameDate($dateNow,'n_m'),
+                'Year'=> $this->functionsReposirory->NameDate($dateNow,'Y'),
+                "estado_des"=>$rsInforRequest[0]->estado_des,
+                "fac_date_emision"=>$rsInforRequest[0]->fac_date_emision,
+                "fecha_reg"=>$rsInforRequest[0]->fecha_reg,           
+            );
+            $pdf = PDF::loadview('pdf.informetecnico', ['rsDataSolicitud'=>$rsDataSolicitud]);
+            $pdf->setPaper('letter', 'portrait');
+            $pdf->render();
+            file_put_contents($fileName, $pdf->output());
+            $data_mail = Mail::send('mails.solucionadomail', ["rsSend"=>$mailTo], function($message) use ($mailTo) {
+                $message->to($mailTo['maildestinatario'])->subject($mailTo['NumRquest'].' - Notificación de creación de la NC al cliente ')
+                ->attach(public_path($mailTo['filenameinformetec']));
+            },true);
+            return response()->json(["estado"=>true], 200);
+            
+        }else{
+            return response()->json(["estado"=>false], 200);
+        }
+    }
+
+    public function alertActive(Request $request){
+        $rules=[
+            "alert_date"=>  ['required','date']
+        ];
+        $validator = Validator::make($request->all(),$rules);
+        if ($validator->fails()){
+            return response()->json( ["estado"=>false, "data"=>$validator->errors(),"message"=>'warning'], 200);
+        }else{
+            $datos["alert_state"]  = $request->alert_state;
+            $datos["alert_id_user"]  = $request->alert_id_user;
+            $datos["alert_date"]  =$request->alert_date;
+            $datos["alert_description"]  = $request->alert_description;
+            $datos["alert_date_reg"]  =  date('Y-m-d H:i:s');
+            $rs = DB::table('poventa_request')->where('id','=', $request->id)->update($datos);
+            if ($rs>0){
+                return response()->json(["estado"=>true, "data"=>$rs, "message"=>'success'], 200);
+            }else{
+                return response()->json(["estado"=>false, "data"=>$rs, "message"=>'error'], 200);
+            }
+        }
+    }
+    public function stateCerradoRequest(Request $request){
+        //$trakState =  new TrackingStateController();
+        //$rsInsSta  =$trakState->create($request->id,$request->id_user_upd,$request->id_state);   
+    }
+    public function uploadFile(Request $request){
+        //if($request->hasFile('avatar')){
+            //$files = $request->file('avatar')->store("public/mymfiles");// otra forma simple de subir archivos
+            $filesarr = $request->file('avatar');
+            $id_request = $request->id_request;
+            $ar = array();
+            foreach( $filesarr as $val){
+                $date = date('y-m-d-H-i-s');
+                $nameFile = Str::slug( $date .'-'.$val->getClientOriginalName()).'.'.$val->getClientOriginalExtension();
+                if(Storage::putFileAs('/public/mymfiles/',$val, $nameFile )){
+                    //echo $nameFile.'<br>';
+                    $arrayImges[]=array("nombre" =>$nameFile);
+                }
+            }
+            return response()->json(["datos22"=>$filesarr, "datos"=>$ar, "message"=>$id_request], 200);
+        //}
+    }
+
+    public function SubuploadFileDes(Request $request){
+        $max_size = (int)ini_get("upload_max_filesize") * 10240;
+        $id_request = $request->id_request;
+        $files = $request->file("avatar");
+        $arrayImges = array();
+        foreach( $files as $val){
+            $date = date('y-m-d-H-i-s');
+            $nameFile = Str::slug( $date .'-'.$val->getClientOriginalName()).'.'.$val->getClientOriginalExtension();
+            if(Storage::putFileAs('/public/mymfiles/',$val, $nameFile )){
+                //echo $nameFile.'<br>';
+                $arrayImges[]=array("nombre" =>$nameFile);
+            }
+        }
+        return redirect('http://localhost:3011/reactreclamos/tracking/'.$id_request);
+        //return response()->json(["estado"=>true, "datos"=>$files, "message"=>'success'], 200);
+        //dd($files);
+    }
+    public function getAtenttion(Request $request){ 
+        $data=DB::table('poventa_request as t1')
+        ->leftJoin('customers as t2', 't1.id_client', '=', 't2.id')
+        ->leftJoin('gen_resource_details as t3', 't1.type_document', '=', 't3.id')
+        ->leftJoin('gen_resource_details as t4', 't1.type_request', '=', 't4.id')
+        ->leftJoin('gen_resource_details as t5', 't1.category', '=', 't5.id')
+        ->leftJoin('gen_resource_details as t6', 't1.id_state', '=', 't6.id')
+        ->select(
+            "t1.id",
+            "t1.num_request",
+            DB::raw("to_char(t1.date_reg,'DD/MM/YYYY') as date_reg"),
+            "t1.id_client",
+            "t2.name_social_reason",
+            "t1.fac_nom_vendedor",
+            "t3.description as tipo_doc",
+            "t4.description as tipo_sol",
+            "t5.description as categoria",
+            "t6.description as estado",
+            "t1.id_responsable as id_responsable",
+            "t1.id_user_responsable as id_user_responsable"
+        )
+        ->where('t1.state',1 )
+        ->where('t1.type_request','like', '%'.$request->type_request.'%')
+        ->where('t1.category','like', '%'.$request->category.'%')
+        ->where('t1.id_client','like', '%'.$request->id_client.'%')
+        ->where('t1.id_state','like', '%'.$request->id_state.'%')
+        ->where('t1.type_document','like', '%'.$request->type_document.'%')
+        ->where('t1.num_request','like', '%'.$request->num_request.'%')
+        ->whereBetween('t1.date_reg', [$request->date_reg_ini.' 00:00:00', $request->date_reg_fin.' 23:59:59'])
+        ->where('t1.id_responsable','like', '%'.$request->id_user.'%')
+        ->orderBy('id', 'asc')
+        ->get();
+        $detailDatos=DB::table('poventa_produc_detail_request as t1')
+        ->select(
+            "t1.id",
+            "t1.id_request",
+            "t1.unit_ven",
+            "t1.unit_rec",
+            't1.costo_proveedor',
+            't1.unit_proc',
+            't1.item_price'
+        )
+        ->get();
+        $request = array();
+        foreach($data as $val){
+            $listDataToken = [
+                $val->id,
+                $val->num_request
+            ]; 
+            $keyurl = base64_encode(implode('|', $listDataToken));
+            $totalventa = 0;
+            $totalsum = 0;
+            foreach($detailDatos as $item){
+                if($item->id_request == $val->id){
+                    $totalventa = ($item->item_price * $item->unit_proc) + (($item->item_price * $item->unit_proc) * 0.18 )  ;
+                    //unidad_reclamada * $item->unit_ven 
+                    $totalsum += $totalventa;
+                }
+            }
+            $request[]=array(
+                "id" =>$val->id,
+                "num_request"=>$val->num_request,
+                "date_reg" =>$val->date_reg,
+                "id_client" =>$val->id_client,
+                "name_social_reason" =>$val->name_social_reason,
+                "fac_nom_vendedor" =>$val->fac_nom_vendedor,
+                "tipo_doc" =>$val->tipo_doc,
+                "tipo_sol" =>$val->tipo_sol,
+                "categoria" =>$val->categoria,
+                "estado" =>$val->estado,
+                "id_enconde" =>$keyurl,
+                "costoventa" => number_format($totalsum, 2, '.', ',') ,
+                'id_user_responsable'=>$val->id_user_responsable,
+                'id_responsable'=>$val->id_responsable
+            );
+        }
+        return response()->json($request, 200);
+    }
+
+    public function exportExcell(Request $request) 
+    {
+        $users = [
+            "type_request"=>$request->type_request,
+            "category"=>$request->category,
+            "id_client"=>$request->id_client,
+            "id_state"=>$request->id_state,
+            "type_document"=>$request->type_document,
+            "num_request"=>$request->num_request,
+            "date_reg_ini"=>$request->date_reg_ini,
+            "date_reg_fin"=>$request->date_reg_fin,
+            "id_user"=>$request->id_user,
+        ];
+        $requestexpor = new RequestExport($users);
+        return Excel::download($requestexpor, 'request.xlsx');
+    }
+
+    public function exportGeneradoExcel(Request $request) 
+    {   
+        $data = $request->data;
+        $this->array_sort_by($data, 'order', SORT_ASC);
+        $users = [
+            "date_reg_ini"=>$request->date_reg_ini,
+            "date_reg_fin"=>$request->date_reg_fin,
+            "data"=>$data
+        ];
+        $requestexpor = new RequestGeneradorExport($users);
+        return Excel::download($requestexpor, 'request.xlsx');
+    }
+
+    function array_sort_by(&$arrIni, $col, $order = SORT_ASC){
+        $arrAux = array();
+        foreach ($arrIni as $key=> $row)
+        {
+            $arrAux[$key] = is_object($row) ? $arrAux[$key] = $row->$col : $row[$col];
+            $arrAux[$key] = strtolower($arrAux[$key]);
+        }
+        array_multisort($arrAux, $order, $arrIni);
+    }
+    public function getNCByFactura(Request $request){
+        $data=DB::table('v_ncs_x_fac_bol as t1')
+        ->join('poventa_request as t2', 't1.fac_fiscal_document_id', 't2.fac_fiscal_document_id')
+        ->select(
+            't1.fac_fiscal_document_id', 
+            't1.nc_fiscal_document_id', 
+            't1.nc_fiscal_serie', 
+            't1.nc_correlative_fiscal_number'
+        )->where('t1.fac_company_id', 1)
+        ->skip(0)
+        ->take(10)
+        ->get();
+        return response()->json($data, 200);
+    }
+    public function getYearByLineByModel(Request $request){
+        $data=DB::table('v_anios_x_linea_modelo_veh_2')
+        ->select('*'
+        )
+        ->where('model_code', $request->model)
+        ->where('line_code', $request->line)
+        ->get();
+        return response()->json($data, 200);
+    }
+    public function getRequestByFecha(Request $request){
+        $data=DB::table('poventa_request as t1')
+        ->join('gen_resource_details as t2', 't1.type_request', 't2.id')
+        ->join('gen_resource_details as t3', 't1.category', 't3.id')
+        ->select(
+            't1.type_request', 
+            't1.category', 
+            't2.description as tipo_solicitud', 
+            't3.description as categoria',
+            DB::raw("count(t2.id) as total_tipo_sol"),
+        )
+        ->whereBetween('t1.date_reg', [$request->date_reg_ini.' 00:00:00', $request->date_reg_fin.' 23:59:59'])
+        ->groupBy('t2.description', 't3.description', 't1.type_request', 't1.category')
+        ->get();
+        return response()->json($data, 200);
+    }
+    public function getPieRequestByFecha(Request $request){
+        $data=DB::table('poventa_request as t1')
+        ->join('gen_resource_details as t2', 't1.type_request', 't2.id')
+        ->select(
+            't2.description as name',
+            DB::raw("count(t2.id) as y"),
+        )
+        ->whereBetween('t1.date_reg', [$request->date_reg_ini.' 00:00:00', $request->date_reg_fin.' 23:59:59'])
+        ->groupBy('t2.description')
+        ->get();
+        return response()->json($data, 200);
+    }
+    public function getBarRequestEstadoByFecha(Request $request){
+        $data=DB::table('poventa_request as t1')
+        ->join('gen_resource_details as t2', 't1.id_state', 't2.id')
+        ->select(
+            't2.description as estado',
+            DB::raw("count(t2.id) as total_estado")
+        )
+        ->whereBetween('t1.date_reg', [$request->date_reg_ini.' 00:00:00', $request->date_reg_fin.' 23:59:59'])
+        ->where('t1.type_request', $request->type_request)
+        ->where('t1.category', $request->category)
+        ->groupBy('t2.description')
+        ->get();
+        $datoscategories = array();
+        $datoshich = array();
+        foreach($data as $item){
+            $datoscategories[]=(
+                $item->estado
+            );
+            $datoshich[]=(
+                $item->total_estado
+            );
+        }
+        return response()->json(['categories'=>$datoscategories, 'data'=>$datoshich], 200);
+    }
+    public function getGridRequestVendedorByFecha(Request $request){
+        $data=DB::table('poventa_request as t1')
+        ->select(
+            't1.fac_nom_vendedor as cod_vendedor',
+            DB::raw("count(t1.fac_nom_vendedor) as total_vendedor")
+        )
+        ->whereBetween('t1.date_reg', [$request->date_reg_ini.' 00:00:00', $request->date_reg_fin.' 23:59:59'])
+        ->where('t1.type_request', $request->type_request)
+        ->where('t1.category', $request->category)
+        ->groupBy('t1.fac_nom_vendedor')
+        ->get();
+        $datosVend = array();
+        $totalVen = 0;
+        //$dfdfd = lo que tengo / total * 100 
+        foreach($data as $item){
+            $totalVen+=$item->total_vendedor;
+        }
+        foreach($data as $item){
+            $total_porcentaje = ($item->total_vendedor / $totalVen) *100;
+            $datosVend[]=array( 
+                "cod_vendedor"=>$item->cod_vendedor,
+                "total_vendedor"=>$item->total_vendedor,
+                "total_porcentaje"=>$total_porcentaje,
+            ); 
+        }   
+        return response()->json(['data'=>$datosVend], 200);
+    }
+    public function getDonutsRequestMotivoByFecha(Request $request){
+        //if( $request->type_request==1488 || $request->type_request==1490){//desarrollo
+        //if($request->type_request== 1818 || $request->type_request == 1816){//producción
+        if($request->tipo_solicitud==='G. ADMIN' || $request->tipo_solicitud ==='QUEJA'){//producción
+            $data=DB::table('poventa_request as t1')
+            ->join('gen_resource_details as t3', 't1.id_motivo', 't3.id')
+            ->select(
+                't3.description as motivo',
+                DB::raw("count(t1.id_motivo) as total_motivo")
+            )
+            ->whereBetween('t1.date_reg', [$request->date_reg_ini.' 00:00:00', $request->date_reg_fin.' 23:59:59'])
+            ->where('t1.type_request', $request->type_request)
+            ->where('t1.category', $request->category)
+            ->groupBy('t3.description')
+            ->get();
+            $datosVend = array();
+            foreach($data as $item){
+                $datosVend[]=([
+                    $item->motivo, $item->total_motivo ]
+                );
+            }
+            return response()->json(['data'=>$datosVend], 200);
+        }else{ 
+            $data=DB::table('poventa_request as t1')
+            ->join('poventa_produc_detail_request as t2', 't1.id', 't2.id_request')
+            ->join('gen_resource_details as t3', 't2.id_motivo', 't3.id')
+            
+            ->select(
+                't3.description as motivo',
+                DB::raw("count(t2.id_motivo) as total_motivo")
+            )
+            ->whereBetween('t1.date_reg', [$request->date_reg_ini.' 00:00:00', $request->date_reg_fin.' 23:59:59'])
+            ->where('t1.type_request', $request->type_request)
+            ->where('t1.category', $request->category)
+            ->groupBy('t3.description')
+            ->get();
+            $datosVend = array();
+            foreach($data as $item){
+                $datosVend[]=([
+                    $item->motivo, $item->total_motivo ]
+                );
+            }
+            return response()->json(['data'=>$datosVend], 200);
+        }
+    }
+    public function updmotivo(Request $request){
+        $rules=[
+            "id_motivo"=>  ['required'],
+        ];        
+        $validator = Validator::make($request->all(),$rules);
+        if ($validator->fails()){
+            return response()->json( ["estado"=>false, "data"=>$validator->errors(),"message"=>'warning'], 200);
+        }else{
+            $datos = array();
+            $datos["id_motivo"]  =  $request->id_motivo;
+            $rs = DB::table('poventa_request')->where('id','=', $request->id)->update($datos);
+            if ($rs>0){
+                return response()->json(["estado"=>true, "data"=>$rs, "message"=>'success'], 200);
+            }else{
+                return response()->json(["estado"=>false, "data"=>$rs, "message"=>'error'], 200);
+            }
+        }
+    }
+    public function getPdfInformeTecnico(Request $request){
+        $prRoute =$request->id;
+        $refDecode = base64_decode($prRoute);
+        $refExplo = explode("|", $refDecode);
+        $rsRequest=$this->getByRequest($refExplo[0]);
+        $dataDetail=DB::table('poventa_produc_detail_request as t1')
+        ->leftJoin('gen_resource_details as t2', 't1.status_product', '=', 't2.id')
+        ->leftJoin('gen_resource_details as t3', 't1.id_motivo', '=', 't3.id')
+        ->select(
+            't1.code',
+            't1.brand',
+            't1.unit_rec',
+            't1.unit_proc',
+            't1.subjet',
+            't1.detail',
+            't1.line_code',
+            't1.factory_code',
+            "t2.description as estado_producto",
+            "t3.description as motivo",
+            "t1.cause_failure",
+            "t1.recommendations",
+            "t1.id",
+        )
+        ->where('t1.id_request',$refExplo[0] )
+        ->orderBy('t1.id', 'asc')
+        ->get();
+
+        if(count($rsRequest)>0){
+            $dateNow =$rsRequest[0]->date_reg;
+            $rsFiles=DB::table('poventa_tracking_file as t1')
+            ->select(
+                "t1.id",
+                "t1.name_file",
+                DB::raw("concat('/storage/mymfiles/', t1.name_file ) as nombre_archivo"),
+                't1.description',
+                't1.name_icon_file',
+                't1.id_product_detail_request',
+                't1.type_file'
+            )->where('id_request', $refExplo[0])
+            ->where('status', 1)
+            ->orderBy('type_file', 'desc')
+            ->get();
+            $rsDataSolicitud =  array( 
+                'Type'=>'byid',
+                'datadetial'=>$dataDetail,
+                "NumRquest"=>$rsRequest[0]->num_request,
+                'contact_name'=>$rsRequest[0]->contact_name,
+                "NameClient"=>$rsRequest[0]->name_social_reason,
+                "contact_phone"=>$rsRequest[0]->contact_phone,
+                "Domicilio"=>'',
+                "Domicilio_contact"=>$rsRequest[0]->address_contact,
+                "Document_contact"=>$rsRequest[0]->document_contact,
+                "Document"=>$rsRequest[0]->document_number,
+                "Email"=>'',
+                "Detalle"=>$rsRequest[0]->detail_request,
+                "TypeRequest"=>$rsRequest[0]->description,
+                'Day'=> $this->functionsReposirory->NameDate($dateNow,'d'),
+                'Month'=> $this->functionsReposirory->NameDate($dateNow,'n_m'),
+                'Year'=> $this->functionsReposirory->NameDate($dateNow,'Y'),
+                "estado_des"=>$rsRequest[0]->estado_des,
+                "fac_date_emision"=>$rsRequest[0]->fac_date_emision,
+                "fecha_reg"=>$rsRequest[0]->fecha_reg,                
+                "dataFiles"=>$rsFiles
+            );
+            $namePDF = 'Informe-tecnico-'.date('Y-m-d-h-i-s').'.pdf';
+            $pdf = PDF::loadview('pdf.informetecnico', ['rsDataSolicitud'=>$rsDataSolicitud]);
+            $pdf->setPaper('letter', 'portrait');
+            $pdf->render();
+            return $pdf->stream($namePDF);
+        }else{
+            return view('pdf.filewhithout');
+        }
+    }
+
+    public function exportDasboardExcell(Request $request) 
+    {
+        $users = [
+            "type_request"=>$request->type_request,
+            "category"=>$request->category,
+            "id_client"=>$request->id_client,
+            "id_state"=>$request->id_state,
+            "type_document"=>$request->type_document,
+            "num_request"=>$request->num_request,
+            "date_reg_ini"=>$request->date_reg_ini,
+            "date_reg_fin"=>$request->date_reg_fin,
+            "id_user"=>$request->id_user,
+        ];
+        $requestexpor = new RequestDasboardExport($users);
+        return Excel::download($requestexpor, 'dashboard.xlsx');
+    }
+}
