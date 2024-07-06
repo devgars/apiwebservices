@@ -147,8 +147,8 @@ return [
         'ibmi' => [
             'driver' => 'db2_ibmi_odbc',
             //'db2_ibmi_odbc' or 'db2_ibmi_ibm' / 'db2_zos_odbc' / 'db2_expressc_odbc
-            'driverName' => '{IBM i Access ODBC Driver}',
-            // '{IBM i Access ODBC Driver}' or '{iSeries Access ODBC Driver}' 
+            'driverName' => '{iSeries Access ODBC Driver}',
+            // '{IBM i Access ODBC Driver}' or '{iSeries Access ODBC Driver}'
             // '{IBM i Access ODBC Driver 64-bit}'
             'url' => env('DATABASE_URL'),
             'host' => env('DB_HOST2', 'localhost'),
