@@ -46,7 +46,17 @@ class ProductosController extends Controller
         $object->msg = "Products data";
         $object->items = $arrayResult;
         //dd($object);
-        
+
         return response()->json($object, 200, array('Content-Type' => 'application/json; charset=utf-8'));
     }
+
+    public function getRepuesto($sku)
+    {
+        $sku='01,01,001,240338-0001.jpg';
+        $asku=explode('.',$sku);
+        echo $asku[0]."\n";
+        echo $asku[1];
+    }
+
+
 }
