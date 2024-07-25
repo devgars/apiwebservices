@@ -62,6 +62,11 @@ class ProductosController extends Controller
         $etsts='A';
 
         $repuesto = DB::connection('ibmi')->table('LIBPRDDAT.MMETREL0')
+        ->select('ETCODLIN','ETCODORI','ETCODMAR','ETCODART','ACDSCLAR')
+        ->leftJoin("LIBPRDDAT.MMACREP", function (JoinClause $join) {
+            $join->on('ACCODLIN', '=', 'ETCODLIN')
+                ->on('ACCODART', '=', 'ETCODART');
+        })
         ->where('ETCODLIN', '=', $etcodlin)
         ->where('ETCODORI', '=', $etcodori)
         ->where('ETCODMAR', '=', $etcodmar)
@@ -144,6 +149,71 @@ class ProductosController extends Controller
         }
 
         return response()->json($origen);
+    }
+
+    public function  getConsultaRepuesto($texto)
+    {
+        $eucodtbl_linea = '12';
+        $eucodtbl_origen = '11';
+        $etsts = 'A';
+        $texto = trim(strtoupper($texto));
+
+        $LINEA = DB::connection('ibmi')->table('LIBPRDDAT.MMEUREL0 B')
+        ->selectRaw('B.EUCODELE, B.EUDSCLAR')
+        ->where('B.EUCODTBL', '=', $eucodtbl_linea)
+        ->where('B.EUSTS', '=', $etsts);
+
+        $ORIGEN = DB::connection('ibmi')->table('LIBPRDDAT.MMEUREL0 C')
+        ->selectRaw('C.EUCODELE, C.EUDSCLAR')
+        ->where('C.EUCODTBL', '=', $eucodtbl_origen)
+        ->where('C.EUSTS', '=', $etsts);
+
+        $MARCA = DB::connection('ibmi')->table('LIBPRDDAT.MMEYREL0 D')
+        ->selectRaw('D.EYCODMAR, D.EYDSCLAR')
+        ->where('D.EYSTS', '=', $etsts);
+
+        $REPUESTO = DB::connection('ibmi')->table('LIBPRDDAT.MMACREP E')
+        ->selectRaw('E.ACCODLIN, E.ACCODART, E.ACDSCLAR')
+        ->where('E.ACSTS', '=', $etsts);
+
+        $consulta_db2 = DB::connection('ibmi')->table('LIBPRDDAT.MMETREL0 A')
+        ->selectRaw("DISTINCT A.ETCODLIN AS COD_LINEA, LINEA.EUDSCLAR AS LDESC, A.ETCODORI AS COD_ORIGEN, ORIGEN.EUDSCLAR AS ODESC, A.ETCODMAR AS COD_MARCA, MARCA.EYDSCLAR AS MDESC, A.ETCODART AS COD_ARTICULO, A.ETCODFAB AS COD_FABRICACION, REPUESTO.ACDSCLAR AS DESC_ARTICULO, A.ETCODLIN CONCAT A.ETCODORI CONCAT A.ETCODMAR CONCAT A.ETCODART AS SKU_REPUESTO")
+        ->joinSub($LINEA, 'LINEA', function (JoinClause $join) {
+            $join->on('LINEA.EUCODELE', '=', 'A.ETCODLIN');
+        })
+        ->joinSub($ORIGEN, 'ORIGEN', function (JoinClause $join) {
+            $join->on('ORIGEN.EUCODELE', '=', 'A.ETCODLIN');
+        })
+        ->joinSub($MARCA, 'MARCA', function (JoinClause $join) {
+            $join->on('MARCA.EYCODMAR', '=', 'A.ETCODMAR');
+        })
+        ->joinSub($REPUESTO, 'REPUESTO', function (JoinClause $join) {
+            $join->on('REPUESTO.ACCODLIN', '=', 'A.ETCODLIN')
+                ->on('REPUESTO.ACCODART', '=', 'A.ETCODART');
+        })
+        ->where('A.ETSTS','=',$etsts)
+        ->where('A.ETCODLIN CONCAT A.ETCODORI CONCAT A.ETCODMAR CONCAT A.ETCODART', 'LIKE', '%'.$texto.'%')
+        ->orWhere('REPUESTO.ACDSCLAR', 'LIKE', '%'.$texto.'%')
+        ->orWhere('A.ETCODFAB', 'LIKE', '%'.$texto.'%')
+        ->limit(500)
+        ->get();
+
+        $consulta = array();
+        foreach ($consulta_db2 as $row) {
+            $row->cod_linea = utf8_encode(trim($row->cod_linea));
+            $row->ldesc = utf8_encode(trim($row->ldesc));
+            $row->cod_origen = utf8_encode(trim($row->cod_origen));
+            $row->odesc = utf8_encode(trim($row->odesc));
+            $row->cod_marca = utf8_encode(trim($row->cod_marca));
+            $row->mdesc = utf8_encode(trim($row->mdesc));
+            $row->cod_articulo = utf8_encode(trim($row->cod_articulo));
+            $row->cod_fabricacion = utf8_encode(trim($row->cod_fabricacion));
+            $row->desc_articulo = utf8_encode(trim($row->desc_articulo));
+            $row->sku_repuesto = utf8_encode(trim($row->sku_repuesto));
+            array_push($consulta, $row);
+        }
+
+        return response()->json($consulta);
     }
 
 }

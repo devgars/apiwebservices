@@ -428,3 +428,4 @@ Route::get('/vimAPI/repuesto/{sku}', [ProductosController::class, 'getRepuesto']
 Route::get('/vimAPI/marca', [ProductosController::class, 'getMarca']);
 Route::get('/vimAPI/linea', [ProductosController::class, 'getLinea']);
 Route::get('/vimAPI/origen', [ProductosController::class, 'getOrigen']);
+Route::get('/vimAPI/consulta-repuesto/{texto}', [ProductosController::class, 'getConsultaRepuesto']);
