@@ -61,7 +61,7 @@ class ProductosController extends Controller
         $etcodart=$asku[3];
         $etsts='A';
 
-        $repuesto = DB::connection('ibmi')->table('LIBPRDDAT.MMETREL0')
+        $repuesto_db2 = DB::connection('ibmi')->table('LIBPRDDAT.MMETREL0')
         ->select('ETCODLIN','ETCODORI','ETCODMAR','ETCODART','ACDSCLAR')
         ->leftJoin("LIBPRDDAT.MMACREP", function (JoinClause $join) {
             $join->on('ACCODLIN', '=', 'ETCODLIN')
@@ -74,6 +74,16 @@ class ProductosController extends Controller
         ->where('ETSTS', '=', $etsts)
         ->limit(1)
         ->get();
+
+        $repuesto = array();
+        foreach ($repuesto_db2 as $row) {
+            $row->etcodlin = utf8_encode(trim($row->etcodlin));
+            $row->etcodori = utf8_encode(trim($row->etcodori));
+            $row->etcodmar = utf8_encode(trim($row->etcodmar));
+            $row->etcodart = utf8_encode(trim($row->etcodart));
+            $row->acdsclar = utf8_encode(trim($row->acdsclar));
+            array_push($repuesto, $row);
+        }
 
         return response()->json($repuesto);
     }
