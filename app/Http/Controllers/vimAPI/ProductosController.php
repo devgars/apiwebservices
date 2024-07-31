@@ -92,7 +92,13 @@ class ProductosController extends Controller
     {
         $fsku=array();
         $asku=explode('.',$sku);
-        $nsku=substr($asku[0],0,strlen($asku[0])-5);
+        $search_str='-ld-';
+        $es_carpeta=strpos($asku[0],$search_str);
+        if($es_carpeta){
+            $nsku=substr($asku[0],0,strlen($asku[0])-8);
+        } else {
+            $nsku=substr($asku[0],0,strlen($asku[0])-5);
+        }
         $fsku=explode(',',$nsku);
         return $fsku;
     }
