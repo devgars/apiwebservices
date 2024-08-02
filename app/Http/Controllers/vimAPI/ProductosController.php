@@ -198,7 +198,7 @@ class ProductosController extends Controller
             $join->on('LINEA.EUCODELE', '=', 'A.ETCODLIN');
         })
         ->joinSub($ORIGEN, 'ORIGEN', function (JoinClause $join) {
-            $join->on('ORIGEN.EUCODELE', '=', 'A.ETCODLIN');
+            $join->on('ORIGEN.EUCODELE', '=', 'A.ETCODORI');
         })
         ->joinSub($MARCA, 'MARCA', function (JoinClause $join) {
             $join->on('MARCA.EYCODMAR', '=', 'A.ETCODMAR');
