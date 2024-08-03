@@ -211,10 +211,12 @@ class ProductosController extends Controller
         ->where('A.ETCODLIN CONCAT A.ETCODORI CONCAT A.ETCODMAR CONCAT A.ETCODART', 'LIKE', '%'.$texto.'%')
         ->orWhere('REPUESTO.ACDSCLAR', 'LIKE', '%'.$texto.'%')
         ->orWhere('A.ETCODFAB', 'LIKE', '%'.$texto.'%')
-        ->limit(500)
+        ->orderBy('A.ETCODLIN,A.ETCODORI,A.ETCODMAR,A.ETCODART')
+        ->limit(100)
         ->get();
 
         $consulta = array();
+        $sku="";
         foreach ($consulta_db2 as $row) {
             $row->cod_linea = utf8_encode(trim($row->cod_linea));
             $row->ldesc = utf8_encode(trim($row->ldesc));
@@ -226,7 +228,10 @@ class ProductosController extends Controller
             $row->cod_fabricacion = utf8_encode(trim($row->cod_fabricacion));
             $row->desc_articulo = utf8_encode(trim($row->desc_articulo));
             $row->sku_repuesto = utf8_encode(trim($row->sku_repuesto));
-            array_push($consulta, $row);
+            if($sku!==$row->sku_repuesto){
+                array_push($consulta, $row);
+                $sku=$row->sku_repuesto;
+            }
         }
 
         return response()->json($consulta);
