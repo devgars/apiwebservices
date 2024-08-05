@@ -60,7 +60,7 @@ class ProductosController extends Controller
         $etcodmar=$asku[2];
         $etcodart=$asku[3];
         $etsts='A';
-
+        $repuesto_db2 = array();
         $repuesto_db2 = DB::connection('ibmi')->table('LIBPRDDAT.MMETREL0')
         ->select('ETCODLIN','ETCODORI','ETCODMAR','ETCODART','ACDSCLAR')
         ->leftJoin("LIBPRDDAT.MMACREP", function (JoinClause $join) {
@@ -212,7 +212,7 @@ class ProductosController extends Controller
         ->orWhere('REPUESTO.ACDSCLAR', 'LIKE', '%'.$texto.'%')
         ->orWhere('A.ETCODFAB', 'LIKE', '%'.$texto.'%')
         ->orderBy('A.ETCODLIN,A.ETCODORI,A.ETCODMAR,A.ETCODART')
-        ->limit(100)
+        ->limit(45)
         ->get();
 
         $consulta = array();
