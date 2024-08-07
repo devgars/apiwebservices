@@ -424,6 +424,7 @@ Route::get('/vimAPI/getclient', [ClientJTController::class, 'ObtenerDatosCliente
 Route::post('/vimAPI/insertarclientejson', [ClientJTController::class, 'insertarCliente']);
 //FIN WEB SERVICE VIM
 
+Route::get('/vimAPI/list-sku', [ProductosController::class, 'getSku']);
 Route::get('/vimAPI/repuesto/{sku}', [ProductosController::class, 'getRepuesto']);
 Route::get('/vimAPI/marca', [ProductosController::class, 'getMarca']);
 Route::get('/vimAPI/linea', [ProductosController::class, 'getLinea']);
