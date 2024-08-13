@@ -94,6 +94,7 @@ class ProductosController extends Controller
 
     public function getRepuesto($sku)
     {
+        $sku = str_replace("__BARRA__","/",$sku);
         $asku = $this->f_transformarSku($sku);
         $etcodlin = $asku[0];
         $etcodori = $asku[1];
@@ -131,6 +132,7 @@ class ProductosController extends Controller
     private function f_transformarSku($sku)
     {
         $fsku = array();
+        $sku = str_replace("__BARRA__","/",$sku);
         $asku = explode('.', $sku);
         $search_str = '-ld-';
         $es_carpeta = strpos($asku[0], $search_str);
@@ -209,6 +211,7 @@ class ProductosController extends Controller
 
     public function  getConsultaRepuesto($texto)
     {
+        $texto = str_replace("__BARRA__","/",$texto);
         $eucodtbl_linea = '12';
         $eucodtbl_origen = '11';
         $etsts = 'A';
