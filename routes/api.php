@@ -79,7 +79,7 @@ Route::get('/ValidateAmountSld/{id}', [CustomerController::class, 'customer_debt
 Route::get('/CustomerDebtsList', [CustomerController::class, 'customer_debts_list']); //->middleware('auth:sanctum');
 
 
-// **  APIREST ECOMMERCE  ** // 
+// **  APIREST ECOMMERCE  ** //
 Route::get('/ecommerce/getLines', [EcommerceProductController::class, 'get_lines'])->middleware('auth:sanctum');
 Route::get('/ecommerce/getModelsByLine/{line}', [EcommerceProductController::class, 'get_models_by_line_code'])->middleware('auth:sanctum');
 Route::get('/ecommerce/getVehiclesByLineModel/{line}/{model}', [EcommerceProductController::class, 'get_vehicles_by_line_and_model']); //->middleware('auth:sanctum');
@@ -133,7 +133,7 @@ Route::post('/ecommerce/customer/postCustomerAs', [EcommerceCustomerController::
 Route::get('/ecommerce/bancos/{codCia}/{extraInfo?}', [EcommerceCustomerController::class, 'get_bank_accounts']);
 //Conexión a API java
 Route::get('/ecommerce/orders/postQuoteOrderAs', [EcommerceProductController::class, 'crear_cotizacion_pedido_as400']); //->middleware('auth:sanctum');
-// ** FIN  APIREST ECOMMERCE  ** // 
+// ** FIN  APIREST ECOMMERCE  ** //
 
 // ** APIREST ALMACEN POLO ** //
 //Route::get('/warehouse/getInventory', [WarehouseController::class, 'consignment_warehouse_inventory'])->middleware('auth:sanctum');
@@ -185,13 +185,13 @@ Route::group(['middleware' => ['cors']], function () {
 
     //ruta para obtener los vehiculos registrados
     Route::get('/mmtrack/vehiculos/obtenerVehiculos', [VehiculosController::class, 'index']);
-    //ruta para guardar vehiculos 
+    //ruta para guardar vehiculos
     Route::get('/mmtrack/vehiculos/registrarVehiculo', [VehiculosController::class, 'guardar']);
     Route::get('/mmtrack/vehiculo/cambiar-vehiculo', [VehiculosController::class, 'cambiarVehiculo']);
 
     //ruta para obtener los ayudantes registrados
     Route::get('/mmtrack/ayudantes/obtener-ayudantes', [DriverAssistantController::class, 'index']);
-    //ruta para guardar vehiculos 
+    //ruta para guardar vehiculos
     Route::get('/mmtrack/ayudantes/registrar-ayudante', [DriverAssistantController::class, 'guardar']);
     //eliminar o activar ayudantes
     Route::get('/mmtrack/ayudantes/cambiar-estatus-ayudante/{id}', [DriverAssistantController::class, 'cambiarEstatus']);
@@ -202,13 +202,13 @@ Route::group(['middleware' => ['cors']], function () {
     Route::get('/mmtrack/ayudantes/obtener-ayudantes-activos', [DriverAssistantController::class, 'ayudantesActivos']);
 
 
-    //ruta para cambiar-estatus vehiculos 
+    //ruta para cambiar-estatus vehiculos
     Route::get('/mmtrack/vehiculos/cambiar-estatus-vehiculo/{id}', [VehiculosController::class, 'cambiasEstatus']);
     //ruta para obtener los vehiculos registrados
     Route::get('/mmtrack/vehiculos/obtenerVehiculos/{id}', [VehiculosController::class, 'ObtenerVehiculos']);
     Route::get('/mmtrack/vehiculos/obtenerVehiculosActivos', [VehiculosController::class, 'ObtenerVehiculosActivos']);
 
-    //ruta para guardar vehiculos 
+    //ruta para guardar vehiculos
     Route::get('/mmtrack/conductores/registrarConductor', [ConductoresController::class, 'guardar']);
     //ruta para obtener los conductores registrados
     Route::get('/mmtrack/conductores/obtenerConductores', [ConductoresController::class, 'index']);
@@ -220,14 +220,14 @@ Route::group(['middleware' => ['cors']], function () {
     Route::get('mmtrack/agencias/crear-sucursal', [AgenciaController::class, 'guardarSucursal']);
     //eliminar sucursal
     Route::get('/mmtrack/agencias/eliminar-sucursal/{id}', [AgenciaController::class, 'eliminar']);
- 
-    //ruta para cambiar-estatus conductores 
+
+    //ruta para cambiar-estatus conductores
     Route::get('/mmtrack/conductores/cambiar-estatus-conductor/{id}', [ConductoresController::class, 'cambiasEstatus']);
 
     //ruta para obtener guia de remision
     Route::get('/mmtrack/servicios/obtener-guia-remision/{id}', [ServicesController::class, 'obtenerGuiaRemision']);
 
-    //ruta para guardar despachos 
+    //ruta para guardar despachos
     Route::get('/mmtrack/despachos/registrarDespacho', [OrderDeliveryController::class, 'guardar']);
     Route::get('/mmtrack/despachos/enviarMensajeWSPrueba', [OrderDeliveryController::class, 'enviarMensajeWSPrueba']);
 
@@ -235,10 +235,10 @@ Route::group(['middleware' => ['cors']], function () {
 
     //ruta para iniciar despacho
     Route::get('/mmtrack/despachos/iniciar-despacho', [OrderDeliveryController::class, 'iniciarDespacho']);
-    //ruta para guardar despachos 
+    //ruta para guardar despachos
     Route::get('/mmtrack/despachos/registrarTransbordo', [OrderDeliveryController::class, 'registrarTransbordo']);
 
-    //ruta para guardar descarga 
+    //ruta para guardar descarga
     Route::get('/mmtrack/despachos/registrarDescarga', [OrderDeliveryController::class, 'registrarDescarga']);
     Route::get('/mmtrack/despachos/registrarDescargaMasiva', [OrderDeliveryController::class, 'registrarDescargaMasiva']);
     //ruta para obtener despachos por conductor
@@ -249,9 +249,9 @@ Route::group(['middleware' => ['cors']], function () {
     Route::get('/mmtrack/despachos/cambiar-estado-envio', [OrderDeliveryController::class, 'cambiasEstatus']);
     //ruta para cargar el peso de los pedidos
     Route::get('/mmtrack/despachos/registrar-peso', [OrderDeliveryController::class, 'registrarPeso']);
-    //ruta para cancelar el estado de los envios 
+    //ruta para cancelar el estado de los envios
     Route::get('/mmtrack/despachos/cancelar-envio', [OrderDeliveryController::class, 'cancelarEnvio']);
-    //ruta para cancelar el estado de los envios 
+    //ruta para cancelar el estado de los envios
     Route::get('/mmtrack/despachos/cambiar-agencia', [OrderDeliveryController::class, 'cambiarAgencia']);
 
     //ruta para cerrar los envios
@@ -266,10 +266,10 @@ Route::group(['middleware' => ['cors']], function () {
     //ruta para obtener pedido por id
     Route::get('/mmtrack/pedidos/obtener-datos-pedido', [PedidosController::class, 'obtenerDatosPedido']);
 
-    
+
     //ruta para obtener vehiculos con pedidos asignados
     Route::get('/mmtrack/pedidos/vehiculos-con-pedidos', [PedidosController::class, 'vehiculosConPedidos']);
-    
+
     //ruta para obtener ayudantes con pedidos asignados
     Route::get('/mmtrack/pedidos/ayudantes-con-pedidos', [PedidosController::class, 'ayudantesConPedidos']);
 
@@ -288,7 +288,7 @@ Route::group(['middleware' => ['cors']], function () {
     Route::get('/mmtrack/inicio/pedidos/dashboard/obtenerChartPedidos/{fecha}/{sede}', [DashboardController::class, 'obtenerChartPedidos']);
     Route::get('/mmtrack/inicio/pedidos/dashboard/obtenerChartPedidosPorAlmacen/{fecha}/{sede}', [DashboardController::class, 'gestionPedidosPorAlmacen']);
     Route::get('/mmtrack/inicio/pedidos/dashboard/obtenerPedidosFiltrados/{fecha}/{tipo}/{sede}', [DashboardController::class, 'obtenerPedidosFiltrados']);
-    
+
     //ruta para sincroniar pedidos del as400
     Route::get('/mmtrack/sincronizar/as400', [ServicesController::class, 'sincronizarAs400']);
 
@@ -297,7 +297,7 @@ Route::group(['middleware' => ['cors']], function () {
 
     //ruta para obtener configuracion de transito
     Route::get('/mmtrack/configuracion/tracking/registrar', [ConfiguracionesController::class, 'guardar']);
-    //ruta para cambiar estatus del transito 
+    //ruta para cambiar estatus del transito
     Route::get('/mmtrack/configuracion/tracking/cambiar-estatus/{id}', [ConfiguracionesController::class, 'cambiasEstatus']);
     //ruta para obtener mensajes de transito
     Route::get('/mmtrack/configuracion/mensajes', [ConfiguracionesController::class, 'obtenerMensajes']);
@@ -423,3 +423,10 @@ Route::get('/vimAPI/getclient', [ClientJTController::class, 'ObtenerDatosCliente
 //INSERTAR A TRAVES DEL POSTMAN USANDO EL METODO POST Y LA DATA EN FORMATO JSON (TABLA clientes)
 Route::post('/vimAPI/insertarclientejson', [ClientJTController::class, 'insertarCliente']);
 //FIN WEB SERVICE VIM
+
+Route::get('/vimAPI/list-sku', [ProductosController::class, 'getSku']);
+Route::get('/vimAPI/repuesto/{sku}', [ProductosController::class, 'getRepuesto']);
+Route::get('/vimAPI/marca', [ProductosController::class, 'getMarca']);
+Route::get('/vimAPI/linea', [ProductosController::class, 'getLinea']);
+Route::get('/vimAPI/origen', [ProductosController::class, 'getOrigen']);
+Route::get('/vimAPI/consulta-repuesto/{texto}', [ProductosController::class, 'getConsultaRepuesto']);
