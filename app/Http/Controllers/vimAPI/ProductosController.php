@@ -55,7 +55,7 @@ class ProductosController extends Controller
     public function getSku()
     {
         $etsts = 'A';
-        $sku1_db2 = DB::connection('ibmi')->table('LIBPRDDAT.MMETREL0')
+        $sku1_db2 = DB::connection('ibmi')->table('LIBPRDDAT.MMETREP')
             ->selectRaw("DISTINCT ETCODLIN CONCAT ',' CONCAT ETCODORI CONCAT ',' CONCAT ETCODMAR CONCAT ',' CONCAT ETCODART AS SKU")
             ->where('ETSTS', '=', $etsts)
             ->groupByRaw("ETCODLIN, ETCODORI, ETCODMAR, ETCODART")
@@ -67,7 +67,7 @@ class ProductosController extends Controller
             $row->sku = utf8_encode(trim($row->sku));
             array_push($sku1, $row);
         }
-        $sku2_db2 = DB::connection('ibmi')->table('LIBPRDDAT.MMETREL0')
+        $sku2_db2 = DB::connection('ibmi')->table('LIBPRDDAT.MMETREP')
             ->selectRaw("DISTINCT ETCODLIN CONCAT ',' CONCAT ETCODORI CONCAT ',' CONCAT ETCODMAR CONCAT ',' CONCAT ETCODART AS SKU")
             ->where('ETSTS', '=', $etsts)
             ->groupByRaw("ETCODLIN, ETCODORI, ETCODMAR, ETCODART")
@@ -102,7 +102,7 @@ class ProductosController extends Controller
         $etcodart = $asku[3];
         $etsts = 'A';
         $repuesto_db2 = array();
-        $repuesto_db2 = DB::connection('ibmi')->table('LIBPRDDAT.MMETREL0')
+        $repuesto_db2 = DB::connection('ibmi')->table('LIBPRDDAT.MMETREP')
             ->select('ETCODLIN', 'ETCODORI', 'ETCODMAR', 'ETCODART', 'ACDSCLAR')
             ->leftJoin("LIBPRDDAT.MMACREP", function (JoinClause $join) {
                 $join->on('ACCODLIN', '=', 'ETCODLIN')
@@ -235,7 +235,7 @@ class ProductosController extends Controller
             ->selectRaw('E.ACCODLIN, E.ACCODART, E.ACDSCLAR')
             ->where('E.ACSTS', '=', $etsts);
 
-        $consulta_db2 = DB::connection('ibmi')->table('LIBPRDDAT.MMETREL0 A')
+        $consulta_db2 = DB::connection('ibmi')->table('LIBPRDDAT.MMETREP A')
             ->selectRaw("DISTINCT A.ETCODLIN AS COD_LINEA, LINEA.EUDSCLAR AS LDESC, A.ETCODORI AS COD_ORIGEN, ORIGEN.EUDSCLAR AS ODESC, A.ETCODMAR AS COD_MARCA, MARCA.EYDSCLAR AS MDESC, A.ETCODART AS COD_ARTICULO, A.ETCODFAB AS COD_FABRICACION, REPUESTO.ACDSCLAR AS DESC_ARTICULO, A.ETCODLIN CONCAT A.ETCODORI CONCAT A.ETCODMAR CONCAT A.ETCODART AS SKU_REPUESTO")
             ->joinSub($LINEA, 'LINEA', function (JoinClause $join) {
                 $join->on('LINEA.EUCODELE', '=', 'A.ETCODLIN');
